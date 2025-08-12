@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Libcamera + OpenCV + Gerçek Zamanlı Görüntü Sistemi
-Kamera görüntüsünü izleyebilirsin!
+ArUco DICT_4X4_50 - 3D Pozisyon Tespiti
 """
 
 import cv2
@@ -12,15 +12,28 @@ import threading
 import queue
 import os
 import signal
+import pickle
 
 class RealtimeCameraViewer:
-    def __init__(self):
-        """Gerçek zamanlı kamera görüntü sistemi"""
-        print("🍓 Gerçek Zamanlı Kamera + ArUco Sistemi")
+    def __init__(self, target_marker_id=25):
+        """Gerçek zamanlı kamera görüntü sistemi - DICT_4X4_50"""
+        print("🍓 Gerçek Zamanlı Kamera + ArUco DICT_4X4_50 Sistemi")
         
-        # ArUco setup
-        self.aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_6X6_250)
+        # Hedef marker ID'si
+        self.target_marker_id = target_marker_id
+        if self.target_marker_id >= 50:
+            print(f"⚠️  DICT_4X4_50 için maksimum ID: 49")
+            self.target_marker_id = 25
+        
+        print(f"🎯 Hedef Marker ID: {self.target_marker_id}")
+        print("📋 Sadece bu marker tanınacak, diğerleri görmezden gelinecek")
+        
+        # ArUco setup - DICT_4X4_50
+        self.aruco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
         self.detector_params = cv2.aruco.DetectorParameters()
+        
+        print("📋 ArUco Sözlük: DICT_4X4_50 (4x4 bit, 50 marker)")
+        print("📋 Marker ID Aralığı: 0-49")
         
         # Daha hassas tespit için parametreler
         self.detector_params.adaptiveThreshWinSizeMin = 3
@@ -46,8 +59,30 @@ class RealtimeCameraViewer:
     
     def setup_camera_calibration(self):
         """Kamera kalibrasyonu parametrelerini ayarla"""
-        # Raspberry Pi Camera için tipik kalibrasyou parametreleri
-        # Bu değerler kameraya göre değişebilir - daha iyi sonuç için kameranızı kalibre etmelisiniz
+        # Önce kaydedilmiş kalibrasyonu yüklemeyi dene
+        if os.path.exists('camera_calibration.pkl'):
+            print("🔄 Kaydedilmiş kalibrasyon yükleniyor...")
+            try:
+                with open('camera_calibration.pkl', 'rb') as f:
+                    calibration_data = pickle.load(f)
+                
+                self.camera_matrix = calibration_data['camera_matrix']
+                self.dist_coeffs = calibration_data['dist_coeffs']
+                
+                print("✅ Kişisel kalibrasyon yüklendi!")
+                print(f"📐 Kamera Matrisi:")
+                print(f"   fx={self.camera_matrix[0,0]:.1f}, fy={self.camera_matrix[1,1]:.1f}")
+                print(f"   cx={self.camera_matrix[0,2]:.1f}, cy={self.camera_matrix[1,2]:.1f}")
+                print(f"🔍 Distorsiyon: {len(self.dist_coeffs)} katsayı")
+                print(f"📏 Marker Boyutu: {self.marker_size*100}cm")
+                return
+                
+            except Exception as e:
+                print(f"⚠️  Kalibrasyon yüklenemedi: {e}")
+                print("📐 Varsayılan değerler kullanılacak...")
+        
+        # Varsayılan kalibrasyou parametreleri (kalibrasyon dosyası yoksa)
+        print("📐 Varsayılan kamera kalibrasyonu kullanılıyor...")
         
         # Kamera matrisi (intrinsic parameters)
         # fx, fy: focal length (pixel cinsinden)
@@ -61,11 +96,12 @@ class RealtimeCameraViewer:
         # Distorsiyon katsayıları (lens bozulması)
         self.dist_coeffs = np.array([0.1, -0.2, 0.0, 0.0, 0.0], dtype=np.float32)
         
-        print("📐 Kamera kalibrasyonu ayarlandı:")
+        print("📐 Varsayılan kalibrasyon ayarlandı:")
         print(f"   Focal Length: fx=500, fy=500")
         print(f"   Principal Point: cx=320, cy=240")
         print(f"   Marker Boyutu: {self.marker_size*100}cm")
         print("   ⚠️  Daha hassas sonuç için kameranızı kalibre edin!")
+        print("   💡 auto_camera_calibration.py çalıştırarak kişisel kalibrasyon yapın")
     
     def calibrate_camera_interactive(self):
         """Interaktif kamera kalibrasyonu (opsiyonel)"""
@@ -147,18 +183,29 @@ class RealtimeCameraViewer:
         
         return frame
     
-    def create_marker(self, marker_id=42):
-        """Test marker oluştur"""
-        print(f"\n🎯 Marker Oluşturuluyor (ID: {marker_id}):")
+    def create_marker(self, marker_id=None):
+        """DICT_4X4_50 test marker oluştur"""
+        # Hedef marker ID'sini kullan
+        if marker_id is None:
+            marker_id = self.target_marker_id
+            
+        print(f"\n🎯 DICT_4X4_50 Marker Oluşturuluyor (ID: {marker_id}):")
+        
+        # ID kontrolü (DICT_4X4_50 için 0-49 arası)
+        if marker_id >= 50:
+            print(f"⚠️  DICT_4X4_50 için maksimum ID: 49")
+            marker_id = 25
+            print(f"📋 ID {marker_id} kullanılacak")
         
         marker = cv2.aruco.generateImageMarker(self.aruco_dict, marker_id, 200)
         bordered = cv2.copyMakeBorder(marker, 50, 50, 50, 50, 
                                     cv2.BORDER_CONSTANT, value=255)
         
-        filename = f'viewer_marker_{marker_id}.png'
+        filename = f'target_marker_id_{marker_id}.png'
         cv2.imwrite(filename, bordered)
         
         print(f"   ✅ Kaydedildi: {filename}")
+        print(f"   🎯 Bu marker sistem tarafından tanınacak")
         return filename
     
     def start_camera_stream(self, width=640, height=480, fps=30):
@@ -302,70 +349,92 @@ class RealtimeCameraViewer:
                     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
                     corners, ids, rejected = self.detector.detectMarkers(gray)
                     
-                    # Tespit varsa
+                    # Sadece hedef marker'ı filtrele
                     if ids is not None:
-                        detection_count += 1
-                        last_detection_time = current_time
-                        detected_ids = ids.flatten()
+                        # Hedef ID'yi ara
+                        target_indices = []
+                        for i, marker_id in enumerate(ids.flatten()):
+                            if marker_id == self.target_marker_id:
+                                target_indices.append(i)
                         
-                        # Marker'ları çiz
-                        cv2.aruco.drawDetectedMarkers(display_frame, corners, ids)
-                        
-                        # 3D Pose estimation
-                        rvecs, tvecs = self.estimate_pose(corners)
-                        
-                        # Her marker için bilgi
-                        for i, corner_set in enumerate(corners):
-                            marker_id = detected_ids[i]
+                        # Sadece hedef marker varsa işle
+                        if target_indices:
+                            # Sadece hedef marker'ın verilerini al
+                            filtered_corners = [corners[i] for i in target_indices]
+                            filtered_ids = np.array([[self.target_marker_id]])
                             
-                            # Merkez hesapla
-                            center = corner_set[0].mean(axis=0).astype(int)
+                            detection_count += 1
+                            last_detection_time = current_time
                             
-                            # 3D pozisyon bilgileri varsa
-                            if rvecs is not None and tvecs is not None:
-                                rvec = rvecs[i][0]
-                                tvec = tvecs[i][0]
-                                
-                                # 3D eksenleri çiz
-                                self.draw_3d_axis(display_frame, rvec, tvec, 
-                                                self.camera_matrix, self.dist_coeffs)
-                                
-                                # Pozisyon bilgileri (metre cinsinden)
-                                x, y, z = tvec
-                                
-                                # Oryantasyon bilgileri (Euler açıları - derece)
-                                euler_angles = self.rotation_vector_to_euler(rvec)
-                                roll, pitch, yaw = euler_angles
-                                
-                                # Pozisyon yazısı (cm cinsinden göster)
-                                pos_text = f"ID:{marker_id} X:{x*100:.1f}cm Y:{y*100:.1f}cm Z:{z*100:.1f}cm"
-                                cv2.putText(display_frame, pos_text, 
-                                          (center[0]-80, center[1]-40), 
-                                          cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
-                                
-                                # Oryantasyon yazısı (derece cinsinden)
-                                rot_text = f"Roll:{roll:.1f}° Pitch:{pitch:.1f}° Yaw:{yaw:.1f}°"
-                                cv2.putText(display_frame, rot_text, 
-                                          (center[0]-80, center[1]-25), 
-                                          cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 0), 1)
-                                
-                                # Konsola detaylı bilgi yazdır
-                                print(f"🎯 Marker {marker_id}:")
-                                print(f"   📍 Pozisyon: X={x:.3f}m, Y={y:.3f}m, Z={z:.3f}m")
-                                print(f"   🔄 Rotasyon: Roll={roll:.1f}°, Pitch={pitch:.1f}°, Yaw={yaw:.1f}°")
-                                print(f"   📏 Mesafe: {np.linalg.norm(tvec):.3f}m")
+                            # Marker'ı çiz
+                            cv2.aruco.drawDetectedMarkers(display_frame, filtered_corners, filtered_ids)
                             
-                            # ID yazısı (eski)
-                            cv2.putText(display_frame, f"ID: {marker_id}", 
-                                      (center[0]-30, center[1]-10), 
-                                      cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+                            # 3D Pose estimation
+                            rvecs, tvecs = self.estimate_pose(filtered_corners)
                             
-                            # Merkez noktası
-                            cv2.circle(display_frame, tuple(center), 5, (0, 0, 255), -1)
-                            
-                        # Tespit mesajı
-                        cv2.putText(display_frame, f"TESPIT: {detected_ids}", 
-                                  (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                            # Hedef marker için bilgi
+                            for i, corner_set in enumerate(filtered_corners):
+                                marker_id = self.target_marker_id
+                                
+                                # Merkez hesapla
+                                center = corner_set[0].mean(axis=0).astype(int)
+                                
+                                # 3D pozisyon bilgileri varsa
+                                if rvecs is not None and tvecs is not None:
+                                    rvec = rvecs[i][0]
+                                    tvec = tvecs[i][0]
+                                    
+                                    # 3D eksenleri çiz
+                                    self.draw_3d_axis(display_frame, rvec, tvec, 
+                                                    self.camera_matrix, self.dist_coeffs)
+                                    
+                                    # Pozisyon bilgileri (metre cinsinden)
+                                    x, y, z = tvec
+                                    
+                                    # Oryantasyon bilgileri (Euler açıları - derece)
+                                    euler_angles = self.rotation_vector_to_euler(rvec)
+                                    roll, pitch, yaw = euler_angles
+                                    
+                                    # Pozisyon yazısı (cm cinsinden göster)
+                                    pos_text = f"HEDEF ID:{marker_id} X:{x*100:.1f}cm Y:{y*100:.1f}cm Z:{z*100:.1f}cm"
+                                    cv2.putText(display_frame, pos_text, 
+                                              (center[0]-100, center[1]-40), 
+                                              cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
+                                    
+                                    # Oryantasyon yazısı (derece cinsinden)
+                                    rot_text = f"Roll:{roll:.1f}° Pitch:{pitch:.1f}° Yaw:{yaw:.1f}°"
+                                    cv2.putText(display_frame, rot_text, 
+                                              (center[0]-100, center[1]-25), 
+                                              cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 0), 1)
+                                    
+                                    # Konsola detaylı bilgi yazdır
+                                    print(f"🎯 HEDEF Marker {marker_id}:")
+                                    print(f"   📍 Pozisyon: X={x:.3f}m, Y={y:.3f}m, Z={z:.3f}m")
+                                    print(f"   🔄 Rotasyon: Roll={roll:.1f}°, Pitch={pitch:.1f}°, Yaw={yaw:.1f}°")
+                                    print(f"   📏 Mesafe: {np.linalg.norm(tvec):.3f}m")
+                                
+                                # Hedef marker vurgusu
+                                cv2.putText(display_frame, f"🎯 HEDEF: {marker_id}", 
+                                          (center[0]-40, center[1]-10), 
+                                          cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 3)
+                                
+                                # Özel hedef marker çerçevesi
+                                cv2.circle(display_frame, tuple(center), 8, (0, 255, 0), -1)
+                                cv2.circle(display_frame, tuple(center), 15, (0, 255, 0), 3)
+                                
+                            # Hedef tespit mesajı
+                            cv2.putText(display_frame, f"🎯 HEDEF BULUNDU: ID {self.target_marker_id}", 
+                                      (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 3)
+                        else:
+                            # Hedef marker yok, diğer marker'lar varsa görmezden gel
+                            other_ids = [id for id in ids.flatten() if id != self.target_marker_id]
+                            if other_ids:
+                                cv2.putText(display_frame, f"❌ DİĞER MARKER'LAR: {other_ids} (GÖRMEZDİM GELİNDİ)", 
+                                          (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+                    else:
+                        # Hiç marker tespit edilmedi
+                        cv2.putText(display_frame, f"🔍 HEDEF MARKER ARAMASINDA... (ID: {self.target_marker_id})", 
+                                  (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
                     
                     # FPS ve istatistikler
                     elapsed = current_time - start_time
@@ -391,8 +460,16 @@ class RealtimeCameraViewer:
                     if detection_count > 0:
                         time_since_detection = current_time - last_detection_time
                         if time_since_detection < 2:  # 2 saniye içinde
-                            cv2.putText(display_frame, "✓ MARKER GÖRÜLÜYOR", 
+                            cv2.putText(display_frame, "✅ HEDEF MARKER GÖRÜLÜYOR", 
                                       (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
+                    
+                    # Hedef marker bilgisi (sürekli göster)
+                    cv2.putText(display_frame, f"Hedef ID: {self.target_marker_id}", 
+                              (10, display_frame.shape[0] - 130), 
+                              cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                    cv2.putText(display_frame, f"Hedef ID: {self.target_marker_id}", 
+                              (10, display_frame.shape[0] - 130), 
+                              cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 1)
                     
                     # Çerçeve göster
                     cv2.imshow('ArUco Kamera', display_frame)
@@ -473,26 +550,40 @@ class RealtimeCameraViewer:
 
 
 def main():
-    print("🍓 Gerçek Zamanlı Kamera + ArUco 3D Sistemi")
+    print("🍓 Gerçek Zamanlı Kamera + ArUco DICT_4X4_50 3D Sistemi")
     print("=" * 50)
     
-    system = RealtimeCameraViewer()
+    # Hedef marker ID'sini kullanıcıdan al
+    print("🎯 Hedef Marker ID Seçimi:")
+    print("📋 DICT_4X4_50 için geçerli ID'ler: 0-49")
     
-    # Marker oluştur
-    print("\n1️⃣ Test Marker:")
-    marker_file = system.create_marker(42)
+    try:
+        target_id = int(input("Hedef Marker ID'sini girin (varsayılan: 25): ") or "25")
+        if target_id < 0 or target_id >= 50:
+            print(f"⚠️  Geçersiz ID! Varsayılan ID 25 kullanılacak")
+            target_id = 25
+    except ValueError:
+        print(f"⚠️  Geçersiz girdi! Varsayılan ID 25 kullanılacak")
+        target_id = 25
+    
+    system = RealtimeCameraViewer(target_marker_id=target_id)
+    
+    # Hedef marker oluştur
+    print("\n1️⃣ Hedef Marker:")
+    marker_file = system.create_marker()
     
     print("\n2️⃣ 3D Pozisyon Sistemi:")
     print("📐 Kamera kalibrasyonu: Aktif")
     print("📏 Marker boyutu: 5cm")
     print("🎯 X, Y, Z eksenleri görüntülenecek")
     print("📊 Pozisyon ve rotasyon bilgileri görünecek")
+    print(f"🎯 Sadece ID {target_id} tanınacak, diğerleri görmezden gelinecek")
     
     print("\n3️⃣ Hazırlık:")
     print(f"📋 {marker_file} dosyasını yazdırın")
     print("📋 Marker boyutunu 5cm olarak ayarlayın")
     print("📋 Kamera penceresi açılacak")
-    print("📋 Markeri kameraya gösterin")
+    print("📋 SADECE hedef marker'ı kameraya gösterin")
     print("⏰ 3 saniye sonra başlıyor...")
     
     for i in range(3, 0, -1):
@@ -507,7 +598,7 @@ def main():
     finally:
         system.stop_stream()
     
-    print("\n🎉 3D ArUco sistemi tamamlandı!")
+    print(f"\n🎉 DICT_4X4_50 Hedef ID {target_id} sistemi tamamlandı!")
 
 
 if __name__ == "__main__":
